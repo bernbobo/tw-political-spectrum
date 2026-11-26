@@ -56,10 +56,9 @@
     var agree = 0, disagree = 0, nonNeutral = 0;
     Object.keys(state.ans).forEach(function (i) { var a = state.ans[i]; if (typeof a === "number" && a !== 0) { nonNeutral++; if (a > 0) agree++; else disagree++; } });
     var acq = nonNeutral >= 20 ? Math.max(agree, disagree) / nonNeutral : null;
-    // 藍綠綜合指數
-    var wSum = 0, sSum = 0;
-    Object.keys(D.bgWeights).forEach(function (k) { var ax = axes[k]; if (ax.score !== null) { wSum += D.bgWeights[k]; sSum += D.bgWeights[k] * ax.score; } });
-    var bg = wSum >= 0.5 ? Math.round(sSum / wSum) : null;
+    // 藍綠綜合指數（不含國防與外交）
+    var bgPack = blueGreen(axes);
+    var bg = bgPack.bg, cross = bgPack.cross, core = bgPack.core, wSum = bgPack.bgW;
     // 政黨接近度
     var usable = D.axisOrder.map(function (k, j) { return { k: k, j: j }; }).filter(function (x) { return axes[x.k].score !== null; });
     var parties = usable.length >= 3 ? D.parties.map(function (p) {
@@ -67,22 +66,112 @@
       return { p: p, sim: Math.round(100 - diff / 2) };
     }).sort(function (a, b) { return b.sim - a.sim; }) : [];
     var totalUnsure = Object.keys(state.ans).filter(function (i) { return state.ans[i] === "u"; }).length;
-    return { axes: axes, checked: checked, bad: bad, badList: badList, acq: acq, bg: bg, bgW: wSum, parties: parties, usable: usable.length, totalUnsure: totalUnsure };
+    return { axes: axes, checked: checked, bad: bad, badList: badList, acq: acq, bg: bg, bgW: wSum, parties: parties, usable: usable.length, totalUnsure: totalUnsure, cross: cross, core: core };
+  }
+  function coreList(axes) {
+    return [
+      { k: "id", short: "認同", score: axes.id ? axes.id.score : null },
+      { k: "cs", short: "兩岸", score: axes.cs ? axes.cs.score : null },
+      { k: "tj", short: "轉正", score: axes.tj ? axes.tj.score : null }
+    ];
+  }
+  function isCross(list) {
+    var s = [];
+    list.forEach(function (x) { if (x.score !== null && x.score !== undefined) s.push(x.score); });
+    if (s.length < 2) return false;
+    var mx = Math.max.apply(Math, s), mn = Math.min.apply(Math, s);
+    return (mx >= 20 && mn <= -10) || (mx >= 10 && mn <= -20) || (mx - mn >= 55);
+  }
+  function blueGreen(axes) {
+    var wSum = 0, sSum = 0;
+    Object.keys(D.bgWeights).forEach(function (k) {
+      var ax = axes[k];
+      if (ax && ax.score !== null) { wSum += D.bgWeights[k]; sSum += D.bgWeights[k] * ax.score; }
+    });
+    var bg = wSum >= 0.5 ? Math.round(sSum / wSum) : null;
+    var core = coreList(axes);
+    return { bg: bg, bgW: wSum, cross: bg !== null && isCross(core), core: core };
   }
   function fmt(v) { return v === null ? "—" : v > 0 ? "+" + v : v < 0 ? "−" + Math.abs(v) : "0"; }
   function lvl(v) { if (v === null) return null; var a = Math.abs(v); return a < 20 ? 0 : a < 55 ? 1 : 2; }
   function axisWord(v, d) { var l = lvl(v); if (l === null) return "資料不足"; if (l === 0) return "居中"; return (l === 2 ? "明顯偏向" : "偏向") + (v > 0 ? d.pos : d.neg); }
-  function bgLabel(v) {
-    if (v === null) return "資料不足";
+  function bgBase(v) {
     if (v >= 55) return "深綠"; if (v >= 20) return "淺綠"; if (v > -20) return "中間"; if (v > -55) return "淺藍"; return "深藍";
   }
-  function bgDesc(v) {
-    if (v === null) return "藍綠相關的四個面向有效作答太少，無法估計。";
-    if (v >= 55) return "在國家認同、兩岸、轉型正義等議題上，你的立場與泛綠陣營的核心主張高度重疊。";
-    if (v >= 20) return "你在藍綠主軸上偏向泛綠，但並非每個議題都與泛綠一致。";
-    if (v > -20) return "你在藍綠主軸上沒有明顯站邊，可能各議題分別判斷，或認同與政策偏好交錯。";
-    if (v > -55) return "你在藍綠主軸上偏向泛藍，但並非每個議題都與泛藍一致。";
-    return "在國家認同、兩岸、轉型正義等議題上，你的立場與泛藍陣營的核心主張高度重疊。";
+  function bgLabel(v, cross) {
+    if (v === null) return "資料不足";
+    var base = bgBase(v);
+    if (!cross) return base;
+    if (v > -20 && v < 20) {
+      if (v >= 10) return "中間偏綠 · 立場交錯";
+      if (v <= -10) return "中間偏藍 · 立場交錯";
+      return "中間 · 立場交錯";
+    }
+    return base + " · 立場交錯";
+  }
+  function bgDesc(v, cross) {
+    if (v === null) return "國家認同、兩岸政策、轉型正義這三個面向的有效作答太少，無法估計。國防與外交不併入藍綠指數。";
+    if (cross) return "國家認同、兩岸政策與轉型正義拉向不同方向。加權後的位置是這三個面向互相折衷的結果，不是每個面向都居中，也不是沒有立場。";
+    if (v >= 55) return "在國家認同、兩岸、轉型正義這三個核心面向，你的立場與泛綠陣營的核心主張高度重疊，而且方向大致一致。";
+    if (v >= 20) return "你在藍綠主軸上偏向泛綠，三個核心面向的方向也大致一致。";
+    if (v > -20) return "你在藍綠主軸上沒有明顯站邊，三個核心面向也沒有互相拉扯。";
+    if (v > -55) return "你在藍綠主軸上偏向泛藍，三個核心面向的方向也大致一致。";
+    return "在國家認同、兩岸、轉型正義這三個核心面向，你的立場與泛藍陣營的核心主張高度重疊，而且方向大致一致。";
+  }
+  function bgPill(x) {
+    return '<span class="bg-pill"><span>' + esc(x.short) + "</span><b>" + esc(x.score === null ? "資料不足" : fmt(x.score)) + "</b></span>";
+  }
+  function bgBreakHtml(core) {
+    var g = [], b = [], z = [], u = [];
+    core.forEach(function (x) {
+      if (x.score === null) u.push(x);
+      else if (x.score > 0) g.push(x);
+      else if (x.score < 0) b.push(x);
+      else z.push(x);
+    });
+    if (g.length && b.length) {
+      return '<div class="bg-split">' +
+        '<div class="bg-split-row"><span class="bg-tag g">往綠拉</span>' + g.map(bgPill).join("") + "</div>" +
+        '<div class="bg-split-row"><span class="bg-tag b">往藍拉</span>' + b.map(bgPill).join("") + "</div>" +
+        (z.length ? '<div class="bg-split-row"><span class="bg-tag">居中</span>' + z.map(bgPill).join("") + "</div>" : "") +
+        (u.length ? '<div class="bg-split-row">' + u.map(bgPill).join("") + "</div>" : "") +
+        "</div>";
+    }
+    return '<div class="bg-axes">' + core.map(bgPill).join("") + "</div>";
+  }
+  function bgMeterHtml(r) {
+    var core = r.core || [];
+    var any = r.bg !== null || core.some(function (x) { return x.score !== null; });
+    if (!any) return "";
+    var ticks = core.filter(function (x) { return x.score !== null; }).map(function (x) {
+      return '<span class="bg-tick" style="left:' + ((x.score + 100) / 2) + '%" aria-hidden="true"></span>';
+    }).join("");
+    var dot = r.bg === null ? "" : '<i class="bg-dot" style="left:' + ((r.bg + 100) / 2) + '%"></i>';
+    var aria = "藍綠綜合指數 " + fmt(r.bg) + "，範圍 −100（深藍）到 +100（深綠）。" + core.map(function (x) {
+      return x.short + (x.score === null ? "資料不足" : fmt(x.score));
+    }).join("，");
+    return '<div class="bg-meter" role="img" aria-label="' + esc(aria) + '">' + ticks + dot + "</div>" +
+      bgBreakHtml(core) +
+      '<div class="bg-scale"><span>深藍 −100</span><span>中間</span><span>+100 深綠</span></div>' +
+      '<p class="muted bg-hint">圓點是加權指數，短線是認同、兩岸、轉正各自的位置。</p>';
+  }
+  function pullLines(core) {
+    var g = [], b = [], rest = [];
+    core.forEach(function (x) {
+      var label = x.short + " " + (x.score === null ? "資料不足" : fmt(x.score));
+      if (x.score === null || x.score === 0) rest.push(label);
+      else if (x.score > 0) g.push(label);
+      else b.push(label);
+    });
+    if (g.length && b.length) {
+      var lines = [
+        { color: "#15803d", text: "往綠拉：" + g.join("、") },
+        { color: "#1d4ed8", text: "往藍拉：" + b.join("、") }
+      ];
+      if (rest.length) lines.push({ color: "#4a4a52", text: rest.join("、") });
+      return lines;
+    }
+    return [{ color: "#18181b", text: core.map(function (x) { return x.short + " " + (x.score === null ? "資料不足" : fmt(x.score)); }).join("    ") }];
   }
   function comboTags(r) {
     var t = [], A = r.axes;
@@ -232,7 +321,6 @@
     var r = compute(), n = answeredCount(), total = seq.length;
     if (n === 0) { app.innerHTML = '<h1 id="title" tabindex="-1">還沒有作答</h1><div class="actions"><button class="btn primary" type="button" data-act="begin">開始作答</button></div>'; return; }
     var tags = comboTags(r);
-    var bgPos = r.bg === null ? 50 : (r.bg + 100) / 2;
     var notes = "";
     if (n < total) notes += '<div class="notice warn">你還有 ' + (total - n) + " 題沒作答，結果只依已答部分計算。</div>";
     if (r.checked >= 3) {
@@ -264,8 +352,8 @@
     app.innerHTML =
       '<h1 id="title" tabindex="-1">你的政治光譜</h1>' +
       '<section class="hero-res" aria-labelledby="bglabel"><span class="muted">藍綠位置（綜合指數 ' + fmt(r.bg) + '）</span>' +
-      '<p class="res-label" id="bglabel">' + esc(bgLabel(r.bg)) + "</p><p>" + esc(bgDesc(r.bg)) + "</p>" +
-      (r.bg === null ? "" : '<div class="bg-meter" role="img" aria-label="藍綠綜合指數 ' + fmt(r.bg) + '，範圍 −100（深藍）到 +100（深綠）"><i style="left:' + bgPos + '%"></i></div><div class="bg-scale"><span>深藍 −100</span><span>中間</span><span>+100 深綠</span></div>') +
+      '<p class="res-label" id="bglabel">' + esc(bgLabel(r.bg, r.cross)) + "</p><p>" + esc(bgDesc(r.bg, r.cross)) + "</p>" +
+      bgMeterHtml(r) +
       (tags.length ? '<p style="margin-top:16px"><b>你的組合：</b>' + esc(tags.join("、")) + "</p>" : "") + notes + "</section>" +
       '<div class="actions"><button class="btn primary" type="button" data-act="png">下載結果圖片</button><button class="btn" type="button" data-act="copy">複製結果文字</button><button class="btn ghost" type="button" data-act="review">回去修改答案</button></div>' +
       '<h2>12 個面向的雷達圖</h2><div class="card radar">' + radarSVG(r) + '<p class="muted" style="text-align:center">圓心 −100、最外圈 +100、中間粗線為 0；每個面向的正方向見下方各軸右側描述。</p></div>' +
@@ -313,8 +401,10 @@
         "<li>「不確定／沒有意見」不計入分子也不計入分母。某面向有效題數少於題數的一半，標示「可信度低」；完全沒有有效作答則顯示資料不足。</li>" +
         "<li>分數絕對值小於 20 為居中，20–54 為偏向，55 以上為明顯偏向。</li>" +
       "</ul></div>" +
-      '<h2>藍綠位置怎麼算</h2><div class="card"><p>台灣政黨競爭的主軸是國家認同與兩岸關係，而非經濟左右，所以藍綠綜合指數只取以下四個面向加權平均（某面向資料不足時，其餘權重等比例放大；有效權重合計不到 50% 則不計算）：</p><div class="table-scroll"><table><tr><th>面向</th><th>權重</th></tr>' + wt + "</table></div>" +
-        "<p>分級：+55 以上深綠、+20 到 +54 淺綠、−19 到 +19 中間、−20 到 −54 淺藍、−55 以下深藍。經濟、社會、環境、核能、民主參與、居住與世代等面向不納入藍綠指數，而是以「組合」另外呈現，因為各陣營內部在這些議題上差異很大。</p></div>" +
+      '<h2>藍綠位置怎麼算</h2><div class="card"><p>台灣政黨競爭的主軸是國家認同與兩岸關係，而非經濟左右。藍綠綜合指數只對下面三個核心面向加權平均（某面向資料不足時，其餘權重等比例放大；有效權重合計不到 50% 則不計算）：</p><div class="table-scroll"><table><tr><th>面向</th><th>權重</th></tr>' + wt + "</table></div>" +
+        "<p>「國防與外交」不折進這個指數，只在各面向裡單獨呈現。反對擴軍、傾向和平或避險，並不等於泛藍；支持強化國防與同盟，也不必然等於泛綠。</p>" +
+        "<p>分級：+55 以上深綠、+20 到 +54 淺綠、−19 到 +19 中間、−20 到 −54 淺藍、−55 以下深藍。若三個核心面向彼此拉向不同方向（最高分至少 +20 且最低分在 −10 以下，或最高分至少 +10 且最低分在 −20 以下，或高低分差達到 55），就標成「立場交錯」。落在中間帶時再寫成「中間偏綠 · 立場交錯」（+10 到 +19）、「中間偏藍 · 立場交錯」（−19 到 −10）或「中間 · 立場交錯」（−9 到 +9）。這表示加權位置是互相拉扯後的折衷，不是三個面向都居中。色帶上的圓點是加權指數，短線是認同、兩岸、轉正各自的位置。</p>" +
+        "<p>經濟、社會、環境、核能、民主參與、居住與世代等面向不納入藍綠指數，而是以「組合」另外呈現，因為各陣營內部在這些議題上差異很大。</p></div>" +
       "<h2>一致性檢查</h2><div class=\"card\"><p>問卷中埋了 " + D.pairs.length + " 組內容相近、方向相反的配對題（例如「維持公營」與「開放民營化」）。兩題都有明確表態時，若答案方向互相矛盾，就記為一組不一致。另外也檢查是否超過 85% 的非中立答案都落在同一邊（默許傾向）。這些提示只是提醒，不會更改分數。</p></div>" +
       '<h2>政黨位置估計與依據</h2><div class="card"><p class="muted">數值為編者依下列公開資料所做的估計（−100 到 +100，方向同各面向），不是政黨官方答案。</p><div class="table-scroll"><table>' + head + rows + "</table></div>" + psrc + "</div>" +
       "<h2>參考來源</h2><div class=\"card\"><ul class=\"plain\">" + D.methodSources.map(function (s) { return "<li>" + ext(s.u, s.t) + "</li>"; }).join("") + "</ul></div>" +
@@ -324,7 +414,8 @@
   /* ---------- 分享 ---------- */
   function resultText() {
     var r = compute();
-    var lines = ["台灣人的政治光譜｜我的結果", "藍綠位置：" + bgLabel(r.bg) + (r.bg === null ? "" : "（" + fmt(r.bg) + "）")];
+    var lines = ["台灣人的政治光譜｜我的結果", "藍綠位置：" + bgLabel(r.bg, r.cross) + (r.bg === null ? "" : "（" + fmt(r.bg) + "）")];
+    pullLines(r.core).forEach(function (ln) { lines.push(ln.text); });
     var t = comboTags(r); if (t.length) lines.push("組合：" + t.join("、"));
     lines.push("");
     D.axisOrder.forEach(function (k) { var a = r.axes[k], d = dimBy[k]; lines.push(d.n + "：" + (a.score === null ? "資料不足" : fmt(a.score) + "（" + axisWord(a.score, d) + "）") + (a.low ? "［可信度低］" : "")); });
@@ -338,38 +429,72 @@
     if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(function () { toast("已複製結果文字"); }, fallback); else fallback();
   }
   function drawPNG() {
-    var r = compute(), W = 1080, H = 1500, c = document.createElement("canvas"); c.width = W; c.height = H;
+    var r = compute(), W = 1080, c = document.createElement("canvas"); c.width = W; c.height = 1900;
     var g = c.getContext("2d"), F = getComputedStyle(document.body).fontFamily;
-    g.fillStyle = "#f7f7f5"; g.fillRect(0, 0, W, H);
-    g.fillStyle = "#18181b"; g.font = "700 60px " + F; g.fillText("台灣人的政治光譜", 72, 130);
-    g.fillStyle = "#6b6b74"; g.font = "400 30px " + F; g.fillText("藍綠位置（綜合指數 " + fmt(r.bg) + "）", 72, 200);
-    g.fillStyle = "#18181b"; g.font = "700 72px " + F; g.fillText(bgLabel(r.bg), 72, 285);
-    var mx = 72, mw = W - 144, my = 330;
-    var grad = g.createLinearGradient(mx, 0, mx + mw, 0); grad.addColorStop(0, "#1d4ed8"); grad.addColorStop(0.5, "#8a8a93"); grad.addColorStop(1, "#15803d");
-    g.fillStyle = grad; roundRect(g, mx, my, mw, 16, 8); g.fill();
-    if (r.bg !== null) { var px = mx + mw * (r.bg + 100) / 200; g.beginPath(); g.arc(px, my + 8, 18, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill(); g.lineWidth = 5; g.strokeStyle = "#18181b"; g.stroke(); }
-    g.fillStyle = "#6b6b74"; g.font = "400 24px " + F; g.fillText("深藍", mx, my + 56); g.textAlign = "right"; g.fillText("深綠", mx + mw, my + 56); g.textAlign = "left";
-    var t = comboTags(r).join("、"); g.fillStyle = "#4a4a52"; g.font = "400 28px " + F; wrap(g, t, 72, 450, W - 144, 40);
-    var y0 = 560, rowH = 66;
-    D.axisOrder.forEach(function (k, i) {
-      var a = r.axes[k], d = dimBy[k], y = y0 + i * rowH;
-      g.fillStyle = "#18181b"; g.font = "600 28px " + F; g.fillText(d.n, 72, y);
-      g.textAlign = "right"; g.fillStyle = "#4a4a52"; g.font = "400 26px " + F; g.fillText(a.score === null ? "資料不足" : fmt(a.score), W - 72, y); g.textAlign = "left";
-      var tx = 72, tw = W - 144, ty = y + 14; g.fillStyle = "#e6e6e1"; roundRect(g, tx, ty, tw, 14, 7); g.fill();
+    g.fillStyle = "#f7f7f5"; g.fillRect(0, 0, W, c.height);
+    g.textAlign = "left"; g.textBaseline = "alphabetic";
+    g.fillStyle = "#18181b"; g.font = "700 60px " + F; g.fillText("台灣人的政治光譜", 72, 120);
+    g.fillStyle = "#6b6b74"; g.font = "400 30px " + F; g.fillText("藍綠位置（綜合指數 " + fmt(r.bg) + "）", 72, 185);
+    var label = bgLabel(r.bg, r.cross);
+    g.fillStyle = "#18181b"; g.font = "700 64px " + F;
+    if (g.measureText(label).width > W - 144) g.font = "700 46px " + F;
+    g.fillText(label, 72, 268);
+    var mx = 72, mw = W - 144, my = 320, mh = 18;
+    var grad = g.createLinearGradient(mx, 0, mx + mw, 0);
+    grad.addColorStop(0, "#1d4ed8"); grad.addColorStop(0.5, "#8a8a93"); grad.addColorStop(1, "#15803d");
+    g.fillStyle = grad; roundRect(g, mx, my, mw, mh, 9); g.fill();
+    (r.core || []).forEach(function (x) {
+      if (x.score === null) return;
+      var tx = mx + mw * (x.score + 100) / 200;
+      g.strokeStyle = "#ffffff"; g.lineWidth = 6; g.lineCap = "butt";
+      g.beginPath(); g.moveTo(tx, my - 11); g.lineTo(tx, my + mh + 11); g.stroke();
+      g.strokeStyle = "#18181b"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(tx, my - 11); g.lineTo(tx, my + mh + 11); g.stroke();
+    });
+    if (r.bg !== null) {
+      var px = mx + mw * (r.bg + 100) / 200;
+      g.beginPath(); g.arc(px, my + mh / 2, 16, 0, Math.PI * 2);
+      g.fillStyle = "#ffffff"; g.fill(); g.lineWidth = 5; g.strokeStyle = "#18181b"; g.stroke();
+    }
+    g.fillStyle = "#6b6b74"; g.font = "400 24px " + F;
+    g.textAlign = "left"; g.fillText("深藍 −100", mx, my + mh + 44);
+    g.textAlign = "center"; g.fillText("中間", mx + mw / 2, my + mh + 44);
+    g.textAlign = "right"; g.fillText("+100 深綠", mx + mw, my + mh + 44);
+    g.textAlign = "left";
+    var y = my + mh + 92;
+    g.font = "500 28px " + F;
+    pullLines(r.core).forEach(function (ln) { g.fillStyle = ln.color; y = wrapY(g, ln.text, 72, y, W - 144, 40); y += 4; });
+    y += 6;
+    g.fillStyle = "#6b6b74"; g.font = "400 22px " + F;
+    y = wrapY(g, "圓點是加權指數，短線是認同、兩岸、轉正各自的位置。", 72, y, W - 144, 32);
+    var tags = comboTags(r).join("、");
+    if (tags) { y += 16; g.fillStyle = "#4a4a52"; g.font = "400 28px " + F; y = wrapY(g, tags, 72, y, W - 144, 40); }
+    y += 34;
+    D.axisOrder.forEach(function (k) {
+      var a = r.axes[k], d = dimBy[k];
+      g.fillStyle = "#18181b"; g.font = "600 28px " + F; g.textAlign = "left"; g.fillText(d.n, 72, y);
+      g.textAlign = "right"; g.fillStyle = "#4a4a52"; g.font = "400 26px " + F;
+      g.fillText(a.score === null ? "資料不足" : fmt(a.score), W - 72, y); g.textAlign = "left";
+      var tx = 72, tw = W - 144, ty = y + 16;
+      g.fillStyle = "#e6e6e1"; roundRect(g, tx, ty, tw, 14, 7); g.fill();
       if (a.score !== null && a.score !== 0) { var half = tw / 2, w = half * Math.abs(a.score) / 100; g.fillStyle = "#4f46e5"; roundRect(g, a.score >= 0 ? tx + half : tx + half - w, ty, Math.max(w, 2), 14, 7); g.fill(); }
       g.fillStyle = "#9a9aa3"; g.fillRect(tx + tw / 2 - 1, ty - 5, 2, 24);
+      y += 64;
     });
+    y += 24;
     g.fillStyle = "#6b6b74"; g.font = "400 22px " + F;
-    g.fillText("各軸 −100 到 +100；右側為：台灣認同、防衛、強化國防、重分配、國家主導、", 72, H - 110);
-    g.fillText("環保優先、非核、自由進步、積極轉正、多元保障、直接參與、居住改革。自編問卷，非學術量表。", 72, H - 76);
-    c.toBlob(function (b) {
+    y = wrapY(g, "各軸 −100 到 +100；右側為：台灣認同、防衛、強化國防、重分配、國家主導、環保優先、非核、自由進步、積極轉正、多元保障、直接參與、居住改革。自編問卷，非學術量表。", 72, y, W - 144, 32);
+    var outH = Math.ceil(y + 28);
+    var out = document.createElement("canvas"); out.width = W; out.height = outH;
+    out.getContext("2d").drawImage(c, 0, 0, W, outH, 0, 0, W, outH);
+    out.toBlob(function (b) {
       if (!b) { toast("無法產生圖片"); return; }
       var a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "台灣人的政治光譜-結果.png"; document.body.appendChild(a); a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); toast("已下載結果圖片");
     }, "image/png");
   }
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
-  function wrap(g, text, x, y, maxW, lh) { var line = ""; for (var i = 0; i < text.length; i++) { var test = line + text[i]; if (g.measureText(test).width > maxW && line) { g.fillText(line, x, y); line = text[i]; y += lh; } else line = test; } if (line) g.fillText(line, x, y); }
+  function wrapY(g, text, x, y, maxW, lh) { var line = ""; for (var i = 0; i < text.length; i++) { var test = line + text[i]; if (g.measureText(test).width > maxW && line) { g.fillText(line, x, y); line = text[i]; y += lh; } else line = test; } if (line) { g.fillText(line, x, y); y += lh; } return y; }
 
   /* ---------- 事件 ---------- */
   function render() {

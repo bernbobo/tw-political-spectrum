@@ -78,9 +78,22 @@ kbd{font-family:inherit;font-size:.78rem;border:1px solid var(--line-strong);bor
 /* result */
 .hero-res{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px 20px}
 .res-label{font-size:clamp(1.6rem,6vw,2.1rem);font-weight:750;line-height:1.2;margin:.15em 0 .3em}
-.bg-meter{position:relative;height:12px;border-radius:999px;background:linear-gradient(90deg,var(--blue),#8a8a93 50%,var(--green));margin:18px 0 6px}
-.bg-meter i{position:absolute;top:50%;width:22px;height:22px;border-radius:50%;background:var(--surface);border:3px solid var(--text);transform:translate(-50%,-50%)}
-.bg-scale{display:flex;justify-content:space-between;font-size:.78rem;color:var(--text-3)}
+.bg-meter{position:relative;height:14px;border-radius:999px;background:linear-gradient(90deg,var(--blue),#8a8a93 50%,var(--green));margin:28px 16px 8px}
+.bg-meter .bg-dot{position:absolute;z-index:2;top:50%;width:22px;height:22px;border-radius:50%;background:var(--surface);border:3px solid var(--text);transform:translate(-50%,-50%)}
+.bg-tick{position:absolute;z-index:1;top:50%;width:2px;height:32px;border-radius:1px;background:var(--text);transform:translate(-50%,-50%);box-shadow:0 0 0 1.5px var(--bg)}
+.bg-scale{display:flex;justify-content:space-between;gap:8px;font-size:.78rem;color:var(--text-3)}
+.bg-scale span:nth-child(2){text-align:center}
+.bg-scale span:last-child{text-align:right}
+.bg-axes,.bg-split{margin:12px 0 2px;max-width:100%}
+.bg-axes{display:flex;flex-wrap:wrap;gap:6px}
+.bg-split{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.bg-split-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
+.bg-tag{flex:none;font-size:.78rem;font-weight:700;line-height:1.2;padding:4px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-2)}
+.bg-tag.g{color:var(--green);background:color-mix(in srgb,var(--green) 16%,var(--surface))}
+.bg-tag.b{color:var(--blue);background:color-mix(in srgb,var(--blue) 16%,var(--surface))}
+.bg-pill{display:inline-flex;align-items:baseline;gap:6px;max-width:100%;padding:3px 10px;border-radius:999px;background:var(--surface-2);color:var(--text-2);font-size:.88rem;line-height:1.45;white-space:nowrap}
+.bg-pill b{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.bg-hint{margin:8px 0 0}
 .notice{border-radius:12px;padding:12px 14px;font-size:.93rem;margin-top:14px}
 .notice.warn{background:var(--warn-soft);color:var(--warn)}
 .notice.ok{background:var(--ok-soft);color:var(--ok)}
